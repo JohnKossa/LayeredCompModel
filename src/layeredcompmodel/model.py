@@ -7,8 +7,12 @@ from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from joblib import Parallel, delayed
 from collections import deque
 
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-def calculate_wilson_mean(y):
+from pandas import DataFrame, Series
+
+
+def calculate_wilson_mean(y: Union[np.ndarray, pd.Series, List[float]]) -> float:
     """
     Calculates the Wilson mean: trim the top 2.5% and the bottom 2.5% (the middle 95%)
     and return the mean of the remaining data.
@@ -31,7 +35,7 @@ def calculate_wilson_mean(y):
 
 
 class CompNode:
-    def __init__(self, depth, wilson_mean, count, filter_col=None, filter_val=None, is_numeric=False, variant=None):
+    def __init__(self, depth: int, wilson_mean: float, count: int, filter_col: Optional[str] = None, filter_val: Optional[Union[str, float]] = None, is_numeric: bool = False, variant: Optional[str] = None) -> None:
         self.depth = depth
         self.wilson_mean = wilson_mean
         self.count = count
@@ -39,46 +43,46 @@ class CompNode:
         self.filter_val = filter_val
         self.is_numeric = is_numeric
         self.variant = variant
-        self.children = []  # List of CompNode
+        self.children: List[CompNode] = []
 
 
 class LayeredCompModel(BaseEstimator, RegressorMixin):
-    def __init__(self, weight_falloff=0.5, split_metric='mae', n_jobs=1):
-        self.weight_falloff = weight_falloff
-        self.split_metric_name = split_metric
-        self.n_jobs = n_jobs
+    def __init__(self, weight_falloff: float = 0.5, split_metric: str = 'mae', n_jobs: int = 1) -> None:
+        self.weight_falloff: float = weight_falloff
+        self.split_metric_name: str = split_metric
+        self.n_jobs: int = n_jobs
 
         if split_metric == 'mae':
-            self.split_metric = self._get_mae
+            self.split_metric: Callable[[np.ndarray], float] = self._get_mae
         elif split_metric == 'mse':
-            self.split_metric = self._get_mse
+            self.split_metric: Callable[[np.ndarray], float] = self._get_mse
         else:
             raise ValueError(f"Invalid split_metric: {split_metric}. Supported metrics are 'mae' and 'mse'.")
 
-        self.tree_ = None
+        self.tree_: Optional[CompNode] = None
 
-    def get_params(self, deep=True):
+    def get_params(self, deep: bool = True) -> Dict[str, Any]:
         return {
             "weight_falloff": self.weight_falloff,
             "split_metric": self.split_metric_name,
             "n_jobs": self.n_jobs,
         }
 
-    def set_params(self, **params):
+    def set_params(self, **params: Any) -> "LayeredCompModel":
         for key, value in params.items():
             if key == "split_metric":
-                self.split_metric_name = value
+                self.split_metric_name: str = value
                 if value == 'mae':
-                    self.split_metric = self._get_mae
+                    self.split_metric: Callable[[np.ndarray], float] = self._get_mae
                 elif value == 'mse':
-                    self.split_metric = self._get_mse
+                    self.split_metric: Callable[[np.ndarray], float] = self._get_mse
                 else:
                     raise ValueError(f"Invalid split_metric: {value}. Supported metrics are 'mae' and 'mse'.")
             else:
                 setattr(self, key, value)
         return self
 
-    def _get_mae(self, y_subset):
+    def _get_mae(self, y_subset: np.ndarray) -> float:
         if len(y_subset) < 2:
             return np.inf
 
@@ -88,7 +92,7 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
         mae = np.mean(np.abs(y_subset - mean))
         return mae
 
-    def _get_mse(self, y_subset):
+    def _get_mse(self, y_subset: np.ndarray) -> float:
         if len(y_subset) < 2:
             return np.inf
 
@@ -98,7 +102,7 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
         mse = np.mean((y_subset - mean) ** 2)
         return mse
 
-    def _find_best_split(self, X_full, y_full, indices, columns, pre_sorted_indices=None):
+    def _find_best_split(self, X_full: DataFrame, y_full: Series, indices: np.ndarray, columns: List[str], pre_sorted_indices: Optional[Dict[str, np.ndarray]] = None) -> Optional[Tuple[str, Union[str, float], bool]]:
         # We want to MINIMIZE the weighted MAE / base MAE ratio
         # Initializing best_score with 1.0 (no improvement)
         best_score = 1.0
@@ -292,7 +296,7 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
 
         return best_split
 
-    def fit(self, X, y, verbose=False):
+    def fit(self, X: DataFrame, y: Series, verbose: bool = False) -> "LayeredCompModel":
         # Convert to pandas for easier manipulation
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X)
@@ -307,10 +311,10 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
 
         if len(X) == 0 or len(y) == 0 or X.shape[1] == 0:
             raise ValueError("Found input data with 0 samples or 0 features.")
-        self.columns_ = X.columns.tolist()
+        self.columns_: List[str] = X.columns.tolist()
 
         # Pre-calculate sorted index maps for numeric columns
-        self.pre_sorted_indices_ = {}
+        self.pre_sorted_indices_: Dict[str, np.ndarray] = {}
         for col in self.columns_:
             if pd.api.types.is_numeric_dtype(X[col]):
                 # Drop NaNs and sort
@@ -325,7 +329,7 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
         self.tree_ = self._build_tree(X, y, indices, depth=0, verbose=verbose)
         return self
 
-    def _build_tree(self, X_full, y_full, indices, depth, variant=None, verbose=False):
+    def _build_tree(self, X_full: DataFrame, y_full: Series, indices: np.ndarray, depth: int, variant: Optional[str] = None, verbose: bool = False) -> CompNode:
         y_initial = y_full.iloc[indices]
         root_node_mean = calculate_wilson_mean(y_initial)
         root_node = CompNode(depth=depth, wilson_mean=root_node_mean, count=len(y_initial), variant=variant)
@@ -423,7 +427,7 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
 
         return root_node
 
-    def predict(self, X):
+    def predict(self, X: DataFrame) -> np.ndarray:
         check_is_fitted(self)
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X, columns=self.columns_)
@@ -431,7 +435,7 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
         predictions = X.apply(self._predict_row, axis=1)
         return predictions.values
 
-    def _predict_row(self, row):
+    def _predict_row(self, row: pd.Series) -> float:
         path = []
         curr = self.tree_
 
@@ -508,13 +512,13 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
 
         return weighted_sum / total_w
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         """
         Exports the trained tree structure as a dictionary.
         """
         check_is_fitted(self)
 
-        def _node_to_dict(node):
+        def _node_to_dict(node: Optional[CompNode]) -> Optional[Dict[str, Any]]:
             if not node:
                 return None
 
@@ -541,13 +545,13 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
 
         return _node_to_dict(self.tree_)
 
-    def to_json(self, indent=4):
+    def to_json(self, indent: int = 4) -> str:
         """
         Exports the trained tree structure as a JSON string.
         """
         return json.dumps(self.to_dict(), indent=indent)
 
-    def explain_value(self, row):
+    def explain_value(self, row: Union[DataFrame, pd.Series, Dict[str, Any]]) -> Dict[str, Any]:
         """
         Audits and traces the path that a row takes through the tree.
         """
