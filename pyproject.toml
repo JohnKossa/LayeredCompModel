@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Hierarchical tree-based model for robust parcel sale price predictions using weighted Wilson means."
 readme = "README.md"
 license = {file = "LICENSE"}
-authors = [{name = "Your Name", email = "your.email@example.com"}]
+authors = [{name = "John Kossa"}]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -29,13 +29,17 @@ dependencies = [
     "scipy>=1.10.0",
 ]
 keywords = ["scikit-learn", "regression", "hierarchical-model", "real-estate"]
-urls."Repository" = "https://github.com/JohnKossa/layeredcompmodel.git"
-urls."Bug Tracker" = "https://github.com/JohnKossa/layeredcompmodel/issues/"
+
+[project.urls]
+Homepage = "https://github.com/JohnKossa/layeredcompmodel"
+Repository = "https://github.com/JohnKossa/layeredcompmodel.git"
+"Bug Tracker" = "https://github.com/JohnKossa/layeredcompmodel/issues"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "scikit-learn[dev]",
     "black",
     "mypy",
     "ruff",
@@ -48,3 +52,7 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/layeredcompmodel"]
+
+
+[tool.hatch.version]
+source = "attr: layeredcompmodel.__version__"
