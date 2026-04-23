@@ -616,6 +616,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         n = len(path_nodes)
         if n == 1:
             final_pred = cast(float, path_nodes[0]["wilson_mean"])
+            total_w: float = 1.0
             for node in path_nodes:
                 node["weight"] = 1.0
         else:
@@ -625,9 +626,9 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
                 x: float = (n - 1 - i) / (n - 1)
                 w: float = (1 - x) ** self.weight_falloff
                 node["weight"] = w
-                weighted_sum += float(node["wilson_mean"]) * w
+                weighted_sum += cast(float, node["wilson_mean"]) * w
                 total_w += w
-            final_pred: float = weighted_sum / total_w
+            final_pred = weighted_sum / total_w
 
         # Build calculation string
         calc_parts = [f"{n['wilson_mean']:.0f}*{cast(float, n['weight']):.3f}" for n in path_nodes]
