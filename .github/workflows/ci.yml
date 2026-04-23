@@ -1,0 +1,27 @@
+name: CI  # <- This is your "workflow name"
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]  # Core Pythons
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install Hatch
+      run: pip install hatch
+    - name: Install & Test
+      run: |
+        hatch env create  # Uses pyproject.toml [project.optional-dependencies.dev]
+        hatch run cov     # pytest --cov (your [tool.pytest.ini_options])
+        hatch run mypy:check  # mypy src/
+        hatch run ruff:check   # ruff check src/ tests/
+        hatch run build        # hatch build
+        pip install twine
+        twine check dist/*

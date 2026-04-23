@@ -2,6 +2,7 @@
 
 [![PyPI version](https://badge.fury.io/py/layeredcompmodel.svg)](https://pypi.org/project/layeredcompmodel/)
 [![Documentation Status](https://readthedocs.org/projects/layeredcompmodel/badge/?version=latest)](https://layeredcompmodel.readthedocs.io/en/latest/?badge=latest)
+[![Tests](https://github.com/JohnKossa/layeredcompmodel/actions/workflows/ci.yml/badge.svg)](https://github.com/JohnKossa/layeredcompmodel/actions)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Hierarchical tree-based regressor for robust predictions (e.g., parcel sale prices) using path-weighted Wilson means (95% trimmed means for outlier resistance).

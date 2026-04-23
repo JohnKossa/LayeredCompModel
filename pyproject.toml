@@ -56,3 +56,9 @@ packages = ["src/layeredcompmodel"]
 
 [tool.hatch.version]
 source = "attr: layeredcompmodel.__version__"
+
+[tool.hatch.envs.dev.scripts]
+cov = "pytest --cov=layeredcompmodel --cov-report=term-missing --cov-fail-under=90"
+mypy-check = "mypy src/layeredcompmodel"
+ruff-check = "ruff check src/ tests/"
+build = "hatch build"
