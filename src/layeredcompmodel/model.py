@@ -46,38 +46,23 @@ class CompNode:
         self.children: List[CompNode] = []
 
 
-class LayeredCompModel(BaseEstimator, RegressorMixin):
+class LayeredCompModel(RegressorMixin, BaseEstimator):
     def __init__(self, weight_falloff: float = 0.5, split_metric: str = 'mae', n_jobs: int = 1) -> None:
         self.weight_falloff: float = weight_falloff
-        self.split_metric_name: str = split_metric
+        self._split_metric_name: str = split_metric
         self.n_jobs: int = n_jobs
-
-        if split_metric == 'mae':
-            self.split_metric: Callable[[np.ndarray], float] = self._get_mae
-        elif split_metric == 'mse':
-            self.split_metric: Callable[[np.ndarray], float] = self._get_mse
-        else:
-            raise ValueError(f"Invalid split_metric: {split_metric}. Supported metrics are 'mae' and 'mse'.")
-
-        self.tree_: Optional[CompNode] = None
 
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
         return {
             "weight_falloff": self.weight_falloff,
-            "split_metric": self.split_metric_name,
+            "split_metric": self._split_metric_name,
             "n_jobs": self.n_jobs,
         }
 
     def set_params(self, **params: Any) -> "LayeredCompModel":
         for key, value in params.items():
             if key == "split_metric":
-                self.split_metric_name: str = value
-                if value == 'mae':
-                    self.split_metric: Callable[[np.ndarray], float] = self._get_mae
-                elif value == 'mse':
-                    self.split_metric: Callable[[np.ndarray], float] = self._get_mse
-                else:
-                    raise ValueError(f"Invalid split_metric: {value}. Supported metrics are 'mae' and 'mse'.")
+                self._split_metric_name = value
             else:
                 setattr(self, key, value)
         return self
@@ -113,8 +98,7 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
 
         total_count = len(y)
         y_values = y.values
-        base_metric = self.split_metric(y_values)
-
+        base_metric = self._split_metric(y_values)
         if base_metric == 0 or base_metric == np.inf:
             # Cannot improve or not enough data
             return None
@@ -182,9 +166,8 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
 
                         y_low = y_col_values[:curr_mid_idx + 1]
                         y_high = y_col_values[curr_mid_idx + 1:]
-
-                        metric_low = self.split_metric(y_low)
-                        metric_high = self.split_metric(y_high)
+                        metric_low = self._split_metric(y_low)
+                        metric_high = self._split_metric(y_high)
 
                         weighted_metric = (metric_low * len(y_low) + metric_high * len(y_high)) / len(y_col_values)
                         score = weighted_metric / base_metric
@@ -240,9 +223,8 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
                                 high_idx = mid_idx - 1
                             continue
 
-                        metric_low = self.split_metric(y_low)
-                        metric_high = self.split_metric(y_high)
-
+                        metric_low = self._split_metric(y_low)
+                        metric_high = self._split_metric(y_high)
                         weighted_metric = (metric_low * len(y_low) + metric_high * len(y_high)) / len(y_col)
                         score = weighted_metric / base_metric
 
@@ -267,7 +249,10 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
                 # Categorical split logic (one-vs-rest)
                 # Treat NaNs as a distinct category
                 X_col_filled = X_full[col].iloc[indices].fillna("NaN")
-                variants = X_col_filled.unique()
+                try:
+                    variants = X_col_filled.unique()
+                except TypeError:
+                    raise TypeError("argument must be a string or a number") from None
                 X_col_filled_values = X_col_filled.values
 
                 for var in variants:
@@ -278,9 +263,8 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
                     if len(y_v) == 0 or len(y_inv) == 0:
                         continue
 
-                    metric_v = self.split_metric(y_v)
-                    metric_inv = self.split_metric(y_inv)
-
+                    metric_v = self._split_metric(y_v)
+                    metric_inv = self._split_metric(y_inv)
                     weighted_metric = (metric_v * len(y_v) + metric_inv * len(y_inv)) / total_count
                     score = weighted_metric / base_metric
 
@@ -309,9 +293,31 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
         if not isinstance(y, pd.Series):
             y = pd.Series(y)
 
-        if len(X) == 0 or len(y) == 0 or X.shape[1] == 0:
-            raise ValueError("Found input data with 0 samples or 0 features.")
+        if np.iscomplexobj(X.values) or np.iscomplexobj(y.values):
+            raise ValueError("Complex data not supported")
+
+        if X.shape[1] == 0:
+            raise ValueError(f"0 feature(s) (shape={X.shape}) while a minimum of 1 is required.")
+        if len(X) == 0:
+            raise ValueError(f"Found array with 0 sample(s) (shape={X.shape}) while a minimum of 1 is required.")
+        if len(y) == 0:
+            raise ValueError(f"Found array with 0 sample(s) (shape={y.shape}) while a minimum of 1 is required.")
+
+        # Sklearn compliance: NaN/inf checks for y (X numeric NaNs excluded per spec)
+        if pd.isna(y).any():
+            raise ValueError("Input y contains NaN.")
+        if pd.api.types.is_numeric_dtype(y) and np.isinf(y.values).any():
+            raise ValueError("Input y contains infinity.")
+
         self.columns_: List[str] = X.columns.tolist()
+        self.n_features_in_: int = X.shape[1]
+        
+        if self._split_metric_name == 'mae':
+            self._split_metric: Callable[[np.ndarray], float] = self._get_mae
+        elif self._split_metric_name == 'mse':
+            self._split_metric: Callable[[np.ndarray], float] = self._get_mse
+        else:
+            raise ValueError(f"Invalid split_metric: {self._split_metric_name}. Supported metrics are 'mae' and 'mse'.")
 
         # Pre-calculate sorted index maps for numeric columns
         self.pre_sorted_indices_: Dict[str, np.ndarray] = {}
@@ -429,6 +435,8 @@ class LayeredCompModel(BaseEstimator, RegressorMixin):
 
     def predict(self, X: DataFrame) -> np.ndarray:
         check_is_fitted(self)
+        if hasattr(self, 'n_features_in_') and X.shape[1] != self.n_features_in_:
+            raise ValueError(f"X has {X.shape[1]} features, but {type(self).__name__} is expecting {self.n_features_in_} features as input.")
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X, columns=self.columns_)
 

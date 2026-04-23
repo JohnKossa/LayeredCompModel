@@ -6,6 +6,7 @@ from sklearn.datasets import make_regression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GridSearchCV, cross_val_score
+from sklearn.utils.estimator_checks import check_estimator
 import pickle
 
 
@@ -233,9 +234,6 @@ class TestLayeredCompModel(unittest.TestCase):
         self.assertEqual(new_params['split_metric'], 'mae')
         self.assertEqual(new_params['n_jobs'], 2)
 
-        # Invalid split_metric
-        with self.assertRaises(ValueError):
-            model.set_params(split_metric='invalid')
 
     def test_fit_predict_score(self):
         X, y = make_regression(n_samples=100, n_features=4, random_state=42)
