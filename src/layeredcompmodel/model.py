@@ -14,8 +14,26 @@ from pandas import DataFrame, Series
 
 def calculate_wilson_mean(y: Sequence[float]) -> float:
     """
-    Calculates the Wilson mean: trim the top 2.5% and the bottom 2.5% (the middle 95%)
-    and return the mean of the remaining data.
+    Calculate robust "Wilson" mean: trim top/bottom 2.5% outliers (keep middle 95%), return mean of remainder.
+
+    Parameters
+    ----------
+    y : Sequence[float]
+        Input data values.
+
+    Returns
+    -------
+    float
+        Trimmed mean. Falls back to full mean if trim yields empty.
+
+    Notes
+    -----
+    Handles empty input as NaN.
+
+    Examples
+    --------
+    >>> calculate_wilson_mean([1.0, 2.0, 3.0, 100.0])
+    2.0
     """
     y_array = np.asarray(y, dtype=float)
     if y_array.size == 0:
@@ -40,7 +58,59 @@ class CompNode:
 
 
 class LayeredCompModel(RegressorMixin, BaseEstimator):
+    """
+    Hierarchical tree-based regressor. Uses Wilson-trimmed means at nodes; predicts via weighted
+    path average from leaf to root (exponential decay controlled by weight_falloff).
+
+    Splits recursively to minimize (weighted child_metric / parent_metric) ratio using MAE or MSE.
+
+    Parameters
+    ----------
+    weight_falloff : float, default=0.5
+        Weight decay exponent: higher favors leaf nodes.
+    split_metric : {'mae', 'mse'}, default='mae'
+        Split quality metric.
+    n_jobs : int, default=1
+        Parallel split search jobs.
+
+    Attributes
+    ----------
+    tree_ : CompNode
+        Fitted tree root.
+    columns_ : list[str]
+        Input feature names.
+    n_features_in_ : int
+        Number of features seen during fit.
+    pre_sorted_indices_ : dict
+        Cached sorted indices for numeric features.
+
+    See Also
+    --------
+    calculate_wilson_mean : Robust node mean computation.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sklearn.datasets import make_regression
+    >>> X, y = make_regression(n_samples=100, n_features=4, random_state=0)
+    >>> model = LayeredCompModel(split_metric='mae')
+    >>> model.fit(pd.DataFrame(X), pd.Series(y))
+    LayeredCompModel(split_metric='mae', weight_falloff=0.5)
+    >>> model.predict(pd.DataFrame(X[:2]))
+    array([...])
+    """
     def __init__(self, weight_falloff: float = 0.5, split_metric: str = 'mae', n_jobs: int = 1) -> None:
+        """
+        Parameters
+        ----------
+        weight_falloff : float, default=0.5
+            Controls weighting in prediction: w = (1 - x)**weight_falloff along path (x=0 at leaf).
+            Higher values prioritize leaf node.
+        split_metric : {'mae', 'mse'}, default='mae'
+            Metric minimized for splits: mean absolute or squared error.
+        n_jobs : int, default=1
+            Number of jobs for parallel best-split search.
+        """
         self.weight_falloff: float = weight_falloff
         self._split_metric_name: str = split_metric
         self.n_jobs: int = n_jobs
@@ -270,6 +340,28 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         return best_split
 
     def fit(self, X: DataFrame, y: Series, verbose: bool = False) -> "LayeredCompModel":
+        """
+        Build tree from training data.
+
+        Parameters
+        ----------
+        X : DataFrame
+            Features; numeric/categorical cols supported (NaNs stop traversal).
+        y : Series
+            Target values (numeric, no NaN/inf).
+        verbose : bool, default=False
+            Print split info.
+
+        Returns
+        -------
+        self : LayeredCompModel
+            Fitted estimator.
+
+        Raises
+        ------
+        ValueError
+            Invalid input shapes, NaN/inf in y, etc.
+        """
         # Convert to pandas for easier manipulation
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X)
@@ -420,6 +512,26 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         return root_node
 
     def predict(self, X: DataFrame) -> np.ndarray:
+        """
+        Predict using weighted path averages.
+
+        Parameters
+        ----------
+        X : DataFrame, shape (n_samples, n_features)
+            Test features (columns must match training).
+
+        Returns
+        -------
+        y_pred : ndarray, shape (n_samples,)
+            Predicted targets.
+
+        Raises
+        ------
+        NotFittedError
+            If model not fitted.
+        ValueError
+            Feature count mismatch.
+        """
         check_is_fitted(self)
         if hasattr(self, 'n_features_in_') and X.shape[1] != self.n_features_in_:
             raise ValueError(f"X has {X.shape[1]} features, but {type(self).__name__} is expecting {self.n_features_in_} features as input.")
@@ -500,7 +612,18 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
 
     def to_dict(self) -> Dict[str, Any]:
         """
-        Exports the trained tree structure as a dictionary.
+        Serialize fitted tree to nested dict (JSON-compatible).
+
+        Returns
+        -------
+        dict[str, Any]
+            Tree structure: each node {"wilson_mean": float, "count": int, "depth": int,
+            "filter_col": str/None, "filter_val": str/float/None, "is_numeric": bool,
+            "variant": str/None, "children": list}
+
+        Notes
+        -----
+        Converts numpy scalars to Python; str() non-primitive filter_val.
         """
         check_is_fitted(self)
         assert self.tree_ is not None
@@ -534,13 +657,40 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
 
     def to_json(self, indent: int = 4) -> str:
         """
-        Exports the trained tree structure as a JSON string.
+        Serialize fitted tree to JSON string.
+
+        Parameters
+        ----------
+        indent : int, default=4
+            JSON indentation level.
+
+        Returns
+        -------
+        str
+            JSON tree dump.
         """
         return json.dumps(self.to_dict(), indent=indent)
 
     def explain_value(self, row: Union[DataFrame, pd.Series, Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Audits and traces the path that a row takes through the tree.
+        Trace prediction path for a single row, return nodes/weights/calculation.
+
+        Parameters
+        ----------
+        row : DataFrame or Series or dict
+            Single row data (DataFrame iloc[0] if multi-row).
+
+        Returns
+        -------
+        dict
+            - final_prediction : float
+            - weight_falloff : float
+            - path : list[dict] each {"depth", "wilson_mean", "count", "filter_col", "filter_val", "is_numeric", "actual_value", "weight"}
+            - calculation : str  e.g. "(75*0.125 + 80*0.875) / 1.0000 = 78.75"
+
+        Examples
+        --------
+        >>> model.explain_value(model.columns_.to_dict())  # Sample
         """
         check_is_fitted(self)
         if isinstance(row, pd.Series):
