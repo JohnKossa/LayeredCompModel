@@ -14,14 +14,12 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install Hatch
-      run: pip install hatch
     - name: Install & Test
       run: |
-        hatch env create dev
-        hatch run dev:cov
-        hatch run dev:mypy-check
-        hatch run dev:ruff-check
-        hatch run dev:build
+        pip install -e .[dev]
+        pytest tests/ --cov=layeredcompmodel --cov-report=term-missing --cov-fail-under=90 -ra
+        mypy src/layeredcompmodel
+        ruff check src/ tests/
+        python -m build
         pip install twine
         twine check dist/*
