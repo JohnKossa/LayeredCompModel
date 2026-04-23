@@ -614,13 +614,13 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
 
         # Calculate weights and final prediction
         n = len(path_nodes)
+        total_w: float = 0.0
         if n == 1:
             final_pred = cast(float, path_nodes[0]["wilson_mean"])
-            total_w: float = 1.0
+            total_w = 1.0
             for node in path_nodes:
                 node["weight"] = 1.0
         else:
-            total_w: float = 0.0
             weighted_sum: float = 0.0
             for i, node in enumerate(path_nodes):
                 x: float = (n - 1 - i) / (n - 1)
