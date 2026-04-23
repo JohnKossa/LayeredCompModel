@@ -43,7 +43,11 @@ dev = [
     "black",
     "mypy",
     "ruff",
-    "build"
+    "build",
+    "sphinx>=7.0",
+    "sphinx-rtd-theme",
+    "sphinx-autoapi",
+    "myst-parser",
 ]
 
 [tool.pytest.ini_options]
@@ -63,6 +67,7 @@ cov = "pytest --cov=layeredcompmodel --cov-report=term-missing --cov-fail-under=
 mypy-check = "mypy src/layeredcompmodel"
 ruff-check = "ruff check src/ tests/"
 build = "hatch build"
+docs = "sphinx-build -b html docs docs/_build/html"
 
 [tool.mypy]
 ignore_missing_imports = true
