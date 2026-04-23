@@ -1,4 +1,4 @@
-name: CI  # <- This is your "workflow name"
+name: CI
 
 on: [push, pull_request]
 
@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.12"]  # Core Pythons
+        python-version: ["3.10", "3.12"]
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
@@ -18,10 +18,10 @@ jobs:
       run: pip install hatch
     - name: Install & Test
       run: |
-        hatch env create dev  # Create DEV env (w/ scripts & [project.optional-dependencies.dev])
-        hatch run cov         # pytest --cov=layeredcompmodel --cov-report=term-missing --cov-fail-under=90
-        hatch run mypy-check  # mypy src/layeredcompmodel
-        hatch run ruff-check  # ruff check src/ tests/
-        hatch run build       # hatch build
-        pip install twine     # Global pip OK post-build
+        hatch env create dev
+        hatch run dev:cov
+        hatch run dev:mypy-check
+        hatch run dev:ruff-check
+        hatch run dev:build
+        pip install twine
         twine check dist/*
