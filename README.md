@@ -19,6 +19,12 @@ Hierarchical tree-based regressor for robust predictions (e.g., parcel sale pric
 - **Serializable**: `to_json()`, `to_dict()`.
 - **Parallel**: `n_jobs` support.
 
+### NaN Handling
+- **Categorical**: Treated as distinct "NaN" category.
+- **Numeric**: Excluded from splits (robust; per SPEC.md).
+- **Target `y`**: Must be finite (raises `ValueError`).
+- Strict checks: Use `Pipeline([('imputer', SimpleImputer()), ('model', LayeredCompModel())])`.
+
 ## Installation
 
 ```bash
