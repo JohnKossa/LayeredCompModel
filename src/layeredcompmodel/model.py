@@ -3,7 +3,7 @@ import pandas as pd
 import json
 from sklearn.base import BaseEstimator, RegressorMixin
 
-from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+from sklearn.utils.validation import check_is_fitted
 from joblib import Parallel, delayed
 from collections import deque
 
@@ -95,9 +95,6 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         if base_metric == 0 or base_metric == np.inf:
             # Cannot improve or not enough data
             return None
-
-        # Create a set for O(1) membership check during filtering
-        indices_set = set(indices)
 
         for col in columns:
             is_numeric = pd.api.types.is_numeric_dtype(X_full[col])

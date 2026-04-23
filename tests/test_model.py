@@ -6,7 +6,6 @@ from sklearn.datasets import make_regression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GridSearchCV, cross_val_score
-from sklearn.utils.estimator_checks import check_estimator
 import pickle
 
 
