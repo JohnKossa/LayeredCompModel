@@ -43,6 +43,7 @@ dev = [
     "black",
     "mypy",
     "ruff",
+    "build"
 ]
 
 [tool.pytest.ini_options]
