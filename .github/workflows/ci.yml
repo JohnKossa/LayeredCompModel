@@ -18,10 +18,10 @@ jobs:
       run: pip install hatch
     - name: Install & Test
       run: |
-        hatch env create  # Uses pyproject.toml [project.optional-dependencies.dev]
-        hatch run cov     # pytest --cov (your [tool.pytest.ini_options])
-        hatch run mypy:check  # mypy src/
-        hatch run ruff:check   # ruff check src/ tests/
-        hatch run build        # hatch build
-        pip install twine
+        hatch env create dev  # Create DEV env (w/ scripts & [project.optional-dependencies.dev])
+        hatch run cov         # pytest --cov=layeredcompmodel --cov-report=term-missing --cov-fail-under=90
+        hatch run mypy-check  # mypy src/layeredcompmodel
+        hatch run ruff-check  # ruff check src/ tests/
+        hatch run build       # hatch build
+        pip install twine     # Global pip OK post-build
         twine check dist/*
