@@ -17,7 +17,7 @@ jobs:
     - name: Install & Test
       run: |
         pip install -e .[dev]
-        pytest tests/ --cov=layeredcompmodel --cov-report=term-missing --cov-fail-under=**75** -ra 
+        pytest tests/ --cov=layeredcompmodel --cov-report=term-missing --cov-fail-under=75 -ra 
         mypy src/layeredcompmodel
         ruff check src/ tests/
         python -m build
