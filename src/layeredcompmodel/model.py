@@ -7,31 +7,24 @@ from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from joblib import Parallel, delayed
 from collections import deque
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from pandas import DataFrame, Series
 
 
-def calculate_wilson_mean(y: Union[np.ndarray, pd.Series, List[float]]) -> float:
+def calculate_wilson_mean(y: Sequence[float]) -> float:
     """
     Calculates the Wilson mean: trim the top 2.5% and the bottom 2.5% (the middle 95%)
     and return the mean of the remaining data.
     """
-    if len(y) == 0:
-        return 0.0
-    if len(y) < 40:  # 1/0.025 = 40. For small samples, trimming might remove everything or too much.
-        # However, the spec says "trim top 2.5% and bottom 2.5%".
-        # For small N, we should ensure at least some data remains if possible,
-        # or follow the standard np.percentile approach.
-        pass
-
-    low = np.percentile(y, 2.5)
-    high = np.percentile(y, 97.5)
-    trimmed_y = y[(y >= low) & (y <= high)]
-
-    if len(trimmed_y) == 0:
-        return np.mean(y)
-    return np.mean(trimmed_y)
+    y_array = np.asarray(y, dtype=float)
+    if y_array.size == 0:
+        return float(np.nan)
+    low, high = np.percentile(y_array, [2.5, 97.5])
+    trimmed_y = y_array[(y_array >= low) & (y_array <= high)]
+    if trimmed_y.size == 0:
+        return float(np.mean(y_array))
+    return float(np.mean(trimmed_y))
 
 
 class CompNode:
@@ -312,12 +305,9 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         self.columns_: List[str] = X.columns.tolist()
         self.n_features_in_: int = X.shape[1]
         
-        if self._split_metric_name == 'mae':
-            self._split_metric: Callable[[np.ndarray], float] = self._get_mae
-        elif self._split_metric_name == 'mse':
-            self._split_metric: Callable[[np.ndarray], float] = self._get_mse
-        else:
-            raise ValueError(f"Invalid split_metric: {self._split_metric_name}. Supported metrics are 'mae' and 'mse'.")
+        if self._split_metric_name not in ('mae', 'mse'):
+            raise ValueError(f"Invalid split_metric: {self._split_metric_name}. Supported: 'mae', 'mse'.")
+        self._split_metric: Callable[[np.ndarray], float] = self._get_mae if self._split_metric_name == 'mae' else self._get_mse
 
         # Pre-calculate sorted index maps for numeric columns
         self.pre_sorted_indices_: Dict[str, np.ndarray] = {}
@@ -464,19 +454,11 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
                     # "the parcel will still slot into a node slightly higher up the tree"
                     break
 
-                try:
-                    # Try to ensure both are numbers.
-                    # If val is a string (e.g. "UNKNOWN"), this is actually a categorical split
-                    # but is_numeric was set to True. This shouldn't happen with correct training.
-                    f_row_val = float(row_val)
-                    f_val = float(val)
-                    is_less_equal = f_row_val <= f_val
-                except (ValueError, TypeError):
-                    # Fallback to string comparison or just break if it's completely incompatible
-                    try:
-                        is_less_equal = row_val <= val
-                    except:
-                        break  # Cannot compare
+                row_num = pd.to_numeric(row_val, errors='coerce')
+                val_num = pd.to_numeric(val, errors='coerce')
+                if pd.isna(row_num) or pd.isna(val_num):
+                    break
+                is_less_equal = row_num <= val_num
 
                 if is_less_equal:
                     matched_child = curr.children[0]
@@ -602,15 +584,11 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
             if curr.is_numeric:
                 if pd.isna(row_val):
                     break
-                try:
-                    f_row_val = float(row_val)
-                    f_val = float(val)
-                    is_less_equal = f_row_val <= f_val
-                except (ValueError, TypeError):
-                    try:
-                        is_less_equal = row_val <= val
-                    except:
-                        break
+                row_num = pd.to_numeric(row_val, errors='coerce')
+                val_num = pd.to_numeric(val, errors='coerce')
+                if pd.isna(row_num) or pd.isna(val_num):
+                    break
+                is_less_equal = row_num <= val_num
 
                 if is_less_equal:
                     matched_child = curr.children[0]
@@ -652,8 +630,8 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
             final_pred = weighted_sum / total_w
 
         # Build calculation string
-        calc_parts = [f"({n['wilson_mean']:.2f} * {n['weight']:.4f})" for n in path_nodes]
-        calculation_str = f"({' + '.join(calc_parts)}) / {sum(n['weight'] for n in path_nodes):.4f} = {final_pred:.2f}"
+        calc_parts = [f"{n['wilson_mean']:.0f}*{n['weight']:.3f}" for n in path_nodes]
+        calculation_str = f"({' + '.join(calc_parts)}) / {total_w:.4f} = {final_pred:.2f}"
 
         return {
             "final_prediction": float(final_pred),

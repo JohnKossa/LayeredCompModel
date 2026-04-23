@@ -62,3 +62,10 @@ cov = "pytest --cov=layeredcompmodel --cov-report=term-missing --cov-fail-under=
 mypy-check = "mypy src/layeredcompmodel"
 ruff-check = "ruff check src/ tests/"
 build = "hatch build"
+
+[tool.mypy]
+ignore_missing_imports = true
+disallow_untyped_defs = false
+warn_return_any = false
+warn_unreachable = false
+check_untyped_defs = false
