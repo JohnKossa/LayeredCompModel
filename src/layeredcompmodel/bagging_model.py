@@ -90,9 +90,12 @@ class LayeredCompBaggingModel(BaseEstimator, RegressorMixin):
 
         metric_fn = mean_absolute_error if self.split_metric == 'mae' else mean_squared_error
 
+        random_state = check_random_state(self.random_state)
+
         for i in range(self.tree_count):
+            seed = random_state.randint(np.iinfo(np.int32).max)
             X_tr, X_ts, y_tr, y_ts = train_test_split(X, y, test_size=(1 - self.sample_pct),
-                                                      random_state=self.random_state + i)
+                                                      random_state=seed)
 
             tree = LayeredCompModel(split_metric=self.split_metric, n_jobs=self.n_jobs)
             tree.fit(X_tr, y_tr)
