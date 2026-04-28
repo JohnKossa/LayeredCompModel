@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.1] - 2026-04-28
+### Added
+- New bagging quickstart example: `examples/bagging_quickstart.py`.
+- New example usage fro LayeredCompBaggingModel in README.md
+
 ## [0.2.0] - 2026-04-27
 ### Added
 - `LayeredCompBaggingModel`: A bagging ensemble version of the primary algorithm that reduces variance and automatically optimizes the `weight_falloff` for each tree in the ensemble.

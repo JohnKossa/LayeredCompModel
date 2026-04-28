@@ -15,6 +15,7 @@ Hierarchical tree-based regressor for robust predictions (e.g., parcel sale pric
 - **Scikit-learn compatible**: Inherits `BaseEstimator`/`RegressorMixin`; works with `Pipeline`, `GridSearchCV`, `cross_val_score`, pickling.
 - **Automatic feature handling**: Categorical (one-vs-rest splits), numeric (binary search breakpoints), NaNs/missing values.
 - **Robust statistics**: Wilson means prevent outlier swings.
+- **Ensemble Support**: `LayeredCompBaggingModel` for reduced variance and automatic `weight_falloff` optimization.
 - **Configurable weighting**: `weight_falloff` balances local accuracy vs. market normativity.
 - **Explainable**: `explain_value(row)` shows path, weights, means.
 - **Serializable**: `to_json()`, `to_dict()`.
@@ -81,15 +82,22 @@ print(explanation)
 - `predict(X)`: Predict using path-weighted means.
 - `explain_value(row)`: Dict with path nodes, depths, weights, wilson_means.
 - `to_json(indent=4)`: JSON tree dump.
-- `tree_`: Root `CompNode` (filter_col, filter_val, wilson_mean, children).
+- `tree_`: Root `CompNode`.
+
+### LayeredCompBaggingModel(tree_count=10, sample_pct=0.8, random_state=None, split_metric='mae', n_jobs=1)
+
+- `fit(X, y)`: Build bagging ensemble. Automatically optimizes `weight_falloff` for each tree using an internal split.
+- `predict(X)`: Return the average prediction of all trees.
+- `estimators_`: List of fitted `LayeredCompModel` instances.
 
 See [docs](https://layeredcompmodel.readthedocs.io) (TBD).
 
 ## Examples
 
-See [`examples/quickstart.py`](examples/quickstart.py) for a runnable example (code matches Quickstart above).
+- [`examples/quickstart.py`](examples/quickstart.py): Basic usage of `LayeredCompModel`.
+- [`examples/bagging_quickstart.py`](examples/bagging_quickstart.py): Usage of `LayeredCompBaggingModel` for better robustness.
 
-**Run it:**
+**Run the quickstart:**
 ```bash
 python examples/quickstart.py
 ```
