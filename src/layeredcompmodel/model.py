@@ -166,17 +166,23 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
             # Cannot improve or not enough data
             return None
 
+        # Positional membership mask for this node's rows, built once and reused for every numeric
+        # column below. Replaces a per-column ``np.isin(pre_sorted, indices)`` (O(N) scan each) with
+        # an O(1) boolean lookup, filtering the pre-sorted array while preserving its sort order —
+        # identical result, much cheaper.
+        node_member = np.zeros(len(y_full), dtype=bool)
+        node_member[indices] = True
+
         for col in columns:
             is_numeric = pd.api.types.is_numeric_dtype(X_full[col])
 
             if is_numeric:
                 # Optimized Numeric split logic using pre-sorted maps
                 if pre_sorted_indices and col in pre_sorted_indices:
-                    # Filter pre-sorted indices to keep only those present in the current node
-                    # Optimized filtering using np.isin
+                    # Filter pre-sorted indices to keep only those present in the current node,
+                    # preserving sort order (O(1) membership lookup instead of np.isin's O(N) scan).
                     col_pre_sorted = pre_sorted_indices[col]
-                    mask_in_node = np.isin(col_pre_sorted, indices)
-                    col_sorted_indices = col_pre_sorted[mask_in_node]
+                    col_sorted_indices = col_pre_sorted[node_member[col_pre_sorted]]
 
                     if len(col_sorted_indices) < 8:
                         continue
@@ -538,8 +544,90 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X, columns=self.columns_)
 
-        predictions = X.apply(self._predict_row, axis=1)
-        return predictions.values
+        return self._predict_batch(X)
+
+    def _predict_batch(self, X: DataFrame) -> np.ndarray:
+        """Vectorized equivalent of ``X.apply(self._predict_row, axis=1)``.
+
+        Routes the whole row-set down the tree once, partitioning by boolean mask at each node (per
+        NODE numpy work instead of per ROW Python), then computes the falloff-weighted path blend for
+        all rows in one vectorized pass. Mirrors ``_predict_row``'s traversal EXACTLY — same child
+        selection (by position), same NaN / uncoercible / missing-child early-stops, same weights —
+        so outputs are identical to the row-by-row path (asserted in tests/test_perf_equivalence.py),
+        but ~1-2 orders of magnitude faster on large universes.
+        """
+        n = len(X)
+        if n == 0:
+            return np.array([], dtype="float64")
+
+        max_depth = 0
+        stack = [self.tree_]
+        while stack:
+            nd = stack.pop()
+            max_depth = max(max_depth, nd.depth)
+            stack.extend(nd.children)
+
+        # means[row, d] = Wilson mean of the node this row passes through at depth d; term_len[row] =
+        # number of nodes on the row's root->terminal path (= terminal depth + 1).
+        means = np.full((n, max_depth + 1), np.nan, dtype="float64")
+        term_len = np.zeros(n, dtype=np.int64)
+        col_cache: Dict[str, np.ndarray] = {}
+
+        def colvals(col):
+            if col not in col_cache:
+                col_cache[col] = X[col].to_numpy()
+            return col_cache[col]
+
+        work = [(self.tree_, np.arange(n))]
+        while work:
+            node, ridx = work.pop()
+            if len(ridx) == 0:
+                continue
+            means[ridx, node.depth] = node.wilson_mean
+            term_len[ridx] = node.depth + 1
+            if not node.children or node.filter_col is None:
+                continue  # terminal leaf
+
+            vals = colvals(node.filter_col)[ridx]
+            if node.is_numeric:
+                val_num = pd.to_numeric(node.filter_val, errors="coerce")
+                row_num = pd.to_numeric(pd.Series(vals), errors="coerce").to_numpy()
+                if pd.isna(val_num):
+                    continue  # uncoercible threshold -> every row stops here (matches _predict_row)
+                ok = ~np.isnan(row_num)                    # NaN / uncoercible rows stop here
+                le = ok & (row_num <= val_num)
+                work.append((node.children[0], ridx[le]))  # <= child (position 0), as in _predict_row
+                if len(node.children) > 1:
+                    work.append((node.children[1], ridx[ok & ~(row_num <= val_num)]))
+                # gt rows with no second child, and stopped rows, remain terminal here
+            else:
+                na = pd.isna(vals)
+                rv = np.empty(len(vals), dtype=object)
+                rv[na] = "NaN"
+                nn = ~na
+                rv[nn] = [str(v) for v in vals[nn]]
+                eq = rv == str(node.filter_val)
+                work.append((node.children[0], ridx[eq]))  # == child (position 0)
+                if len(node.children) > 1:
+                    work.append((node.children[1], ridx[~eq]))
+
+        # Falloff-weighted blend. For a path of n nodes, the node at depth d (= path position i) gets
+        # weight (1 - x)^falloff with x = (n-1-d)/(n-1); normalized. We accumulate over DEPTHS in
+        # root->leaf order (a short python loop of ~tree-depth steps, each vectorized across rows) so
+        # the sequential float summation reproduces _predict_row's EXACTLY — bit-for-bit identical,
+        # not merely close (this matters: the fit-time falloff line-search calls predict).
+        denom = np.where(term_len > 1, term_len - 1, 1).astype("float64")
+        num = np.zeros(n, dtype="float64")
+        wsum = np.zeros(n, dtype="float64")
+        for dd in range(max_depth + 1):
+            active = dd < term_len
+            if not active.any():
+                break
+            x = (term_len - 1 - dd) / denom
+            wd = np.where(active, (1.0 - x) ** self.weight_falloff, 0.0)
+            num += np.where(active, means[:, dd], 0.0) * wd
+            wsum += wd
+        return num / wsum
 
     def _predict_row(self, row: pd.Series) -> float:
         path = []

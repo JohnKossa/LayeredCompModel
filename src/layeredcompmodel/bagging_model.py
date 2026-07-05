@@ -5,9 +5,38 @@ from sklearn.utils.validation import check_is_fitted, check_random_state
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
 from scipy.optimize import minimize_scalar
+from joblib import Parallel, delayed
 from typing import Any, List, Optional, Union
 
 from layeredcompmodel.model import LayeredCompModel
+
+
+def _fit_single_tree(X: Any, y: Any, seed: int, sample_pct: float, split_metric: str):
+    """Fit one bagging tree and optimize its weight_falloff on the held-out fold.
+
+    Module-level (not a closure) so it is picklable for joblib's process backend. Fits with
+    ``n_jobs=1``: parallelism is across trees, so nesting within-tree parallelism would only
+    oversubscribe. Deterministic given ``seed`` — the split, tree build, and falloff search are all
+    seeded/deterministic, so the parallel result is bit-for-bit identical to a serial fit.
+    """
+    metric_fn = mean_absolute_error if split_metric == 'mae' else mean_squared_error
+    X_tr, X_ts, y_tr, y_ts = train_test_split(X, y, test_size=(1 - sample_pct), random_state=seed)
+
+    tree = LayeredCompModel(split_metric=split_metric, n_jobs=1)
+    tree.fit(X_tr, y_tr)
+
+    if len(y_ts) > 0:
+        def objective(w: float) -> float:
+            tree.weight_falloff = w
+            return float(metric_fn(y_ts, tree.predict(X_ts)))
+
+        res = minimize_scalar(objective, bounds=(0.0, 15.0), method='bounded')
+        tree.weight_falloff = res.x
+        best = res.fun
+    else:
+        tree.weight_falloff = 3      # fallback if no held-out data
+        best = -1
+    return tree, float(best)
 
 
 class LayeredCompBaggingModel(BaseEstimator, RegressorMixin):
@@ -88,34 +117,21 @@ class LayeredCompBaggingModel(BaseEstimator, RegressorMixin):
 
         self.estimators_: List[LayeredCompModel] = []
 
-        metric_fn = mean_absolute_error if self.split_metric == 'mae' else mean_squared_error
-
         random_state = check_random_state(self.random_state)
 
-        for i in range(self.tree_count):
-            seed = random_state.randint(np.iinfo(np.int32).max)
-            X_tr, X_ts, y_tr, y_ts = train_test_split(X, y, test_size=(1 - self.sample_pct),
-                                                      random_state=seed)
+        # Draw every per-tree seed up front, in order, so the RNG sequence is identical to the old
+        # serial loop (=> bit-for-bit determinism). The trees are independent, so fitting them in
+        # parallel across ``n_jobs`` processes speeds up the dominant tree-build cost WITHOUT changing
+        # any output. Each tree fits with n_jobs=1 (parallelism is across trees, not within).
+        seeds = [int(random_state.randint(np.iinfo(np.int32).max)) for _ in range(self.tree_count)]
 
-            tree = LayeredCompModel(split_metric=self.split_metric, n_jobs=self.n_jobs)
-            tree.fit(X_tr, y_tr)
+        results = Parallel(n_jobs=self.n_jobs)(
+            delayed(_fit_single_tree)(X, y, seed, self.sample_pct, self.split_metric)
+            for seed in seeds
+        )
 
-            def objective(w: float) -> float:
-                tree.weight_falloff = w
-                preds = tree.predict(X_ts)
-                return float(metric_fn(y_ts, preds))
-
-            if len(y_ts) > 0:
-                res = minimize_scalar(objective, bounds=(0.0, 15.0), method='bounded')
-                opt_w = res.x
-                best = res.fun
-            else:
-                # Fallback if no test data
-                opt_w = 3
-                best = -1
-
-            tree.weight_falloff = opt_w
-            self.estimators_.append(tree)
+        self.estimators_ = [tree for tree, _best in results]
+        for i, (tree, best) in enumerate(results):
             print(f"Trained tree {i + 1} of {self.tree_count} with weight {tree.weight_falloff} @ {best}")
 
         return self
