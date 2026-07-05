@@ -159,3 +159,61 @@ class LayeredCompBaggingModel(BaseEstimator, RegressorMixin):
             all_preds.append(tree.predict(X))
 
         return np.mean(all_preds, axis=0)
+
+    # ------------------------------------------------------------------ serialization
+    SERIAL_FORMAT_VERSION = 1
+
+    def to_dict(self) -> dict:
+        """Serialize the fitted ensemble to a JSON-compatible dict (a portable, inspectable,
+        pickle-free alternative to persisting the estimator). Round-trips through :meth:`from_dict`
+        to a PREDICT-READY model whose predictions match this one bit-for-bit.
+
+        Each tree carries its own structure (``LayeredCompModel.to_dict``) plus the metadata predict
+        needs; numeric thresholds serialize as floats and survive JSON round-trip losslessly.
+        """
+        check_is_fitted(self)
+        import layeredcompmodel
+        return {
+            "format_version": self.SERIAL_FORMAT_VERSION,
+            "lib_version": getattr(layeredcompmodel, "__version__", None),
+            "split_metric": self.split_metric,
+            "n_features_in": int(self.n_features_in_),
+            "feature_names": list(self.feature_names_in_),
+            "trees": [
+                {
+                    "weight_falloff": float(t.weight_falloff),
+                    "split_metric": t._split_metric_name,
+                    "columns": list(t.columns_),
+                    "n_features_in": int(t.n_features_in_),
+                    "tree": t.to_dict(),
+                }
+                for t in self.estimators_
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, state: dict) -> "LayeredCompBaggingModel":
+        """Reconstruct a PREDICT-READY ensemble from :meth:`to_dict` output. See
+        :meth:`LayeredCompModel.from_dict` for the predict-only-vs-trainable contract."""
+        fmt = state.get("format_version")
+        if fmt != cls.SERIAL_FORMAT_VERSION:
+            raise ValueError(
+                f"Unsupported serialization format_version={fmt} "
+                f"(this build reads {cls.SERIAL_FORMAT_VERSION})."
+            )
+        model = cls(tree_count=len(state["trees"]), split_metric=state["split_metric"])
+        model.n_features_in_ = int(state["n_features_in"])
+        model.feature_names_in_ = list(state["feature_names"])
+        model.estimators_ = [LayeredCompModel.from_dict(t) for t in state["trees"]]
+        return model
+
+    def to_json(self, indent: int = 2) -> str:
+        """Serialize the fitted ensemble to a JSON string."""
+        import json
+        return json.dumps(self.to_dict(), indent=indent)
+
+    @classmethod
+    def from_json(cls, s: str) -> "LayeredCompBaggingModel":
+        """Reconstruct a predict-ready ensemble from a JSON string produced by :meth:`to_json`."""
+        import json
+        return cls.from_dict(json.loads(s))

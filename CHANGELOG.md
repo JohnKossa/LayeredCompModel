@@ -1,6 +1,15 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- **JSON serialization for fitted models.** `LayeredCompBaggingModel.to_dict`/`from_dict` and
+  `to_json`/`from_json`, plus `LayeredCompModel.from_dict` (inverse of the existing `to_dict`). A
+  portable, human-readable, pickle-free way to persist a fitted ensemble; round-trips to a
+  predict-ready model whose predictions match bit-for-bit (numeric thresholds survive JSON
+  losslessly). `from_dict` restores a predict/explain-ready model, not a resume-training one (fit-only
+  caches like `pre_sorted_indices_` are not serialized). Format is versioned (`format_version`,
+  `lib_version`). Covered by `tests/test_serialization.py`.
+
 ### Performance (behavior-neutral — bit-for-bit identical outputs)
 - **Vectorized prediction (~20× on large inputs).** `LayeredCompModel.predict` now routes the whole
   row-set down the tree once, partitioning by boolean mask per node and computing the falloff-weighted

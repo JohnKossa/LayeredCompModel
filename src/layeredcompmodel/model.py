@@ -57,6 +57,21 @@ class CompNode:
         self.children: List[CompNode] = []
 
 
+def _node_from_dict(d: Dict[str, Any]) -> CompNode:
+    """Rebuild a CompNode (and its subtree) from the dict produced by ``LayeredCompModel.to_dict``."""
+    node = CompNode(
+        depth=int(d["depth"]),
+        wilson_mean=float(d["wilson_mean"]),
+        count=int(d["count"]),
+        filter_col=d.get("filter_col"),
+        filter_val=d.get("filter_val"),
+        is_numeric=bool(d.get("is_numeric", False)),
+        variant=d.get("variant"),
+    )
+    node.children = [_node_from_dict(c) for c in d.get("children", [])]
+    return node
+
+
 class LayeredCompModel(RegressorMixin, BaseEstimator):
     """
     Hierarchical tree-based regressor. Uses Wilson-trimmed means at nodes; predicts via weighted
@@ -758,6 +773,29 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
             JSON tree dump.
         """
         return json.dumps(self.to_dict(), indent=indent)
+
+    @classmethod
+    def from_dict(cls, state: Dict[str, Any]) -> "LayeredCompModel":
+        """Reconstruct a PREDICT-READY tree from a serialized state dict.
+
+        Inverse of the per-tree state produced by :meth:`LayeredCompBaggingModel.to_dict`, which
+        pairs each tree's :meth:`to_dict` structure with the metadata prediction needs
+        (``weight_falloff``, ``columns``, ``n_features_in``, ``split_metric``).
+
+        Restores only what ``predict`` / ``explain_value`` require — NOT the fit-only caches
+        (``pre_sorted_indices_``), so the result predicts correctly but does not resume training;
+        refit from data if you need a trainable model.
+        """
+        model = cls(
+            weight_falloff=float(state["weight_falloff"]),
+            split_metric=state.get("split_metric", "mae"),
+            n_jobs=int(state.get("n_jobs", 1)),
+        )
+        model.columns_ = list(state["columns"])
+        model.n_features_in_ = int(state["n_features_in"])
+        model._split_metric = model._get_mae if model._split_metric_name == "mae" else model._get_mse
+        model.tree_ = _node_from_dict(state["tree"])
+        return model
 
     def explain_value(self, row: Union[DataFrame, pd.Series, Dict[str, Any]]) -> Dict[str, Any]:
         """
