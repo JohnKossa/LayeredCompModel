@@ -5,9 +5,38 @@ from sklearn.utils.validation import check_is_fitted, check_random_state
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
 from scipy.optimize import minimize_scalar
+from joblib import Parallel, delayed
 from typing import Any, List, Optional, Union
 
 from layeredcompmodel.model import LayeredCompModel
+
+
+def _fit_single_tree(X: Any, y: Any, seed: int, sample_pct: float, split_metric: str):
+    """Fit one bagging tree and optimize its weight_falloff on the held-out fold.
+
+    Module-level (not a closure) so it is picklable for joblib's process backend. Fits with
+    ``n_jobs=1``: parallelism is across trees, so nesting within-tree parallelism would only
+    oversubscribe. Deterministic given ``seed`` — the split, tree build, and falloff search are all
+    seeded/deterministic, so the parallel result is bit-for-bit identical to a serial fit.
+    """
+    metric_fn = mean_absolute_error if split_metric == 'mae' else mean_squared_error
+    X_tr, X_ts, y_tr, y_ts = train_test_split(X, y, test_size=(1 - sample_pct), random_state=seed)
+
+    tree = LayeredCompModel(split_metric=split_metric, n_jobs=1)
+    tree.fit(X_tr, y_tr)
+
+    if len(y_ts) > 0:
+        def objective(w: float) -> float:
+            tree.weight_falloff = w
+            return float(metric_fn(y_ts, tree.predict(X_ts)))
+
+        res = minimize_scalar(objective, bounds=(0.0, 15.0), method='bounded')
+        tree.weight_falloff = res.x
+        best = res.fun
+    else:
+        tree.weight_falloff = 3      # fallback if no held-out data
+        best = -1
+    return tree, float(best)
 
 
 class LayeredCompBaggingModel(BaseEstimator, RegressorMixin):
@@ -88,34 +117,21 @@ class LayeredCompBaggingModel(BaseEstimator, RegressorMixin):
 
         self.estimators_: List[LayeredCompModel] = []
 
-        metric_fn = mean_absolute_error if self.split_metric == 'mae' else mean_squared_error
-
         random_state = check_random_state(self.random_state)
 
-        for i in range(self.tree_count):
-            seed = random_state.randint(np.iinfo(np.int32).max)
-            X_tr, X_ts, y_tr, y_ts = train_test_split(X, y, test_size=(1 - self.sample_pct),
-                                                      random_state=seed)
+        # Draw every per-tree seed up front, in order, so the RNG sequence is identical to the old
+        # serial loop (=> bit-for-bit determinism). The trees are independent, so fitting them in
+        # parallel across ``n_jobs`` processes speeds up the dominant tree-build cost WITHOUT changing
+        # any output. Each tree fits with n_jobs=1 (parallelism is across trees, not within).
+        seeds = [int(random_state.randint(np.iinfo(np.int32).max)) for _ in range(self.tree_count)]
 
-            tree = LayeredCompModel(split_metric=self.split_metric, n_jobs=self.n_jobs)
-            tree.fit(X_tr, y_tr)
+        results = Parallel(n_jobs=self.n_jobs)(
+            delayed(_fit_single_tree)(X, y, seed, self.sample_pct, self.split_metric)
+            for seed in seeds
+        )
 
-            def objective(w: float) -> float:
-                tree.weight_falloff = w
-                preds = tree.predict(X_ts)
-                return float(metric_fn(y_ts, preds))
-
-            if len(y_ts) > 0:
-                res = minimize_scalar(objective, bounds=(0.0, 15.0), method='bounded')
-                opt_w = res.x
-                best = res.fun
-            else:
-                # Fallback if no test data
-                opt_w = 3
-                best = -1
-
-            tree.weight_falloff = opt_w
-            self.estimators_.append(tree)
+        self.estimators_ = [tree for tree, _best in results]
+        for i, (tree, best) in enumerate(results):
             print(f"Trained tree {i + 1} of {self.tree_count} with weight {tree.weight_falloff} @ {best}")
 
         return self
@@ -143,3 +159,61 @@ class LayeredCompBaggingModel(BaseEstimator, RegressorMixin):
             all_preds.append(tree.predict(X))
 
         return np.mean(all_preds, axis=0)
+
+    # ------------------------------------------------------------------ serialization
+    SERIAL_FORMAT_VERSION = 1
+
+    def to_dict(self) -> dict:
+        """Serialize the fitted ensemble to a JSON-compatible dict (a portable, inspectable,
+        pickle-free alternative to persisting the estimator). Round-trips through :meth:`from_dict`
+        to a PREDICT-READY model whose predictions match this one bit-for-bit.
+
+        Each tree carries its own structure (``LayeredCompModel.to_dict``) plus the metadata predict
+        needs; numeric thresholds serialize as floats and survive JSON round-trip losslessly.
+        """
+        check_is_fitted(self)
+        import layeredcompmodel
+        return {
+            "format_version": self.SERIAL_FORMAT_VERSION,
+            "lib_version": getattr(layeredcompmodel, "__version__", None),
+            "split_metric": self.split_metric,
+            "n_features_in": int(self.n_features_in_),
+            "feature_names": list(self.feature_names_in_),
+            "trees": [
+                {
+                    "weight_falloff": float(t.weight_falloff),
+                    "split_metric": t._split_metric_name,
+                    "columns": list(t.columns_),
+                    "n_features_in": int(t.n_features_in_),
+                    "tree": t.to_dict(),
+                }
+                for t in self.estimators_
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, state: dict) -> "LayeredCompBaggingModel":
+        """Reconstruct a PREDICT-READY ensemble from :meth:`to_dict` output. See
+        :meth:`LayeredCompModel.from_dict` for the predict-only-vs-trainable contract."""
+        fmt = state.get("format_version")
+        if fmt != cls.SERIAL_FORMAT_VERSION:
+            raise ValueError(
+                f"Unsupported serialization format_version={fmt} "
+                f"(this build reads {cls.SERIAL_FORMAT_VERSION})."
+            )
+        model = cls(tree_count=len(state["trees"]), split_metric=state["split_metric"])
+        model.n_features_in_ = int(state["n_features_in"])
+        model.feature_names_in_ = list(state["feature_names"])
+        model.estimators_ = [LayeredCompModel.from_dict(t) for t in state["trees"]]
+        return model
+
+    def to_json(self, indent: int = 2) -> str:
+        """Serialize the fitted ensemble to a JSON string."""
+        import json
+        return json.dumps(self.to_dict(), indent=indent)
+
+    @classmethod
+    def from_json(cls, s: str) -> "LayeredCompBaggingModel":
+        """Reconstruct a predict-ready ensemble from a JSON string produced by :meth:`to_json`."""
+        import json
+        return cls.from_dict(json.loads(s))
