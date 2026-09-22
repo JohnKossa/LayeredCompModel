@@ -18,6 +18,11 @@
 ### Fixed
 - Docs: corrected the `docs/index.rst` toctree reference (`api/modules` → `autoapi/index`, matching
   the AutoAPI extension) and updated the stale `release` version in `docs/conf.py` to `0.3.0`.
+- **Perf-equivalence test now portable across SciPy builds.** `test_perf_equivalence.py` compared the
+  per-tree `weight_falloff` (and dependent predictions) against the checked-in v0.2.1 baseline with
+  exact equality, but those values come from SciPy's bounded `minimize_scalar` and drift in their last
+  digits (~1e-9) across SciPy/platform builds, failing CI. Tree structure is still asserted exactly
+  (discrete, portable); falloffs and predictions now use `assert_allclose(rtol=1e-6)`. Behavior-neutral.
 
 ## [0.3.0] - 2026-09-22
 ### Added
