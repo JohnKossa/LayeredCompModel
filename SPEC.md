@@ -23,8 +23,6 @@ A target prediction field
 
 A list of columns to use
 
-A list of columns to use
-
 ### Produces
 
 A trained scikit-learn compatible model object (e.g., `LayeredCompModel`) with `fit` and `predict` methods.

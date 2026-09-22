@@ -21,7 +21,7 @@ See `examples/quickstart.py` in the repository.
    :maxdepth: 2
    :caption: Contents:
 
-   api/modules
+   autoapi/index
 
 :ref:`genindex`
 :ref:`modindex`

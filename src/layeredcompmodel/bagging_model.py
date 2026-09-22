@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
@@ -9,6 +11,8 @@ from joblib import Parallel, delayed
 from typing import Any, List, Optional, Union
 
 from layeredcompmodel.model import LayeredCompModel
+
+logger = logging.getLogger(__name__)
 
 
 def _fit_single_tree(X: Any, y: Any, seed: int, sample_pct: float, split_metric: str):
@@ -132,7 +136,10 @@ class LayeredCompBaggingModel(BaseEstimator, RegressorMixin):
 
         self.estimators_ = [tree for tree, _best in results]
         for i, (tree, best) in enumerate(results):
-            print(f"Trained tree {i + 1} of {self.tree_count} with weight {tree.weight_falloff} @ {best}")
+            logger.info(
+                "Trained tree %d of %d with weight %s @ %s",
+                i + 1, self.tree_count, tree.weight_falloff, best,
+            )
 
         return self
 

@@ -50,6 +50,9 @@ dev = [
     "sphinx-autoapi",
     "myst-parser",
 ]
+benchmark = [
+    "xgboost>=2.0",
+]
 
 [tool.pytest.ini_options]
 minversion = "7.0"

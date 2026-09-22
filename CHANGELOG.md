@@ -1,6 +1,23 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- **Benchmark script** (`examples/benchmark.py`): compares `LayeredCompModel` and
+  `LayeredCompBaggingModel` against `LinearRegression` and (optional) XGBoost on a shared synthetic
+  dataset with a deliberately non-linear price signal (neighborhood×sqft interactions, a
+  non-monotonic age effect, and a luxury-size regime step). Reports MAE/MAPE/RMSE plus fit/predict
+  wall-clock time. XGBoost is imported lazily and skipped with a note if unavailable.
+- **`benchmark` optional-dependency extra** (`pip install layeredcompmodel[benchmark]`) pulling in
+  `xgboost>=2.0` for the benchmark script.
+
+### Changed
+- **`LayeredCompBaggingModel.fit` no longer prints per-tree progress to stdout.** Progress is now
+  emitted via the standard `logging` module (`logging.getLogger("layeredcompmodel")` at `INFO`),
+  silent by default. Behavior-neutral; no API or serialization change.
+
+### Fixed
+- Docs: corrected the `docs/index.rst` toctree reference (`api/modules` → `autoapi/index`, matching
+  the AutoAPI extension) and updated the stale `release` version in `docs/conf.py` to `0.3.0`.
 
 ## [0.3.0] - 2026-09-22
 ### Added
@@ -31,7 +48,7 @@
 ## [0.2.1] - 2026-04-28
 ### Added
 - New bagging quickstart example: `examples/bagging_quickstart.py`.
-- New example usage fro LayeredCompBaggingModel in README.md
+- New example usage for LayeredCompBaggingModel in README.md
 
 ## [0.2.0] - 2026-04-27
 ### Added
