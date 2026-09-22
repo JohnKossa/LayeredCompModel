@@ -43,7 +43,7 @@ dev = [
     "scikit-learn[dev]",
     "black",
     "mypy",
-    "ruff",
+    "ruff==0.15.11",
     "build",
     "sphinx>=7.0",
     "sphinx-rtd-theme",
@@ -53,6 +53,14 @@ dev = [
 benchmark = [
     "xgboost>=2.0",
 ]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# Pinned so local and CI enforce the same rules (default E/F is environment-dependent).
+# E501 (line length) is intentionally not selected -- the codebase predates a line limit.
+select = ["E4", "E7", "E9", "F", "I", "UP", "RUF"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"

@@ -1,14 +1,14 @@
 import logging
+from typing import Any
 
 import numpy as np
 import pandas as pd
+from joblib import Parallel, delayed
+from scipy.optimize import minimize_scalar
 from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.utils.validation import check_is_fitted, check_random_state
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
-from scipy.optimize import minimize_scalar
-from joblib import Parallel, delayed
-from typing import Any, List, Optional, Union
+from sklearn.utils.validation import check_is_fitted, check_random_state
 
 from layeredcompmodel.model import LayeredCompModel
 
@@ -67,7 +67,7 @@ class LayeredCompBaggingModel(BaseEstimator, RegressorMixin):
             self,
             tree_count: int = 10,
             sample_pct: float = 0.8,
-            random_state: Optional[Union[int, np.random.RandomState]] = None,
+            random_state: int | np.random.RandomState | None = None,
             split_metric: str = 'mae',
             n_jobs: int = 1
     ) -> None:
@@ -119,7 +119,7 @@ class LayeredCompBaggingModel(BaseEstimator, RegressorMixin):
         self.n_features_in_ = X.shape[1]
         self.feature_names_in_ = getattr(X, "columns", np.array([str(i) for i in range(X.shape[1])])).tolist()
 
-        self.estimators_: List[LayeredCompModel] = []
+        self.estimators_: list[LayeredCompModel] = []
 
         random_state = check_random_state(self.random_state)
 

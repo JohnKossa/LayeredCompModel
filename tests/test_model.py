@@ -1,12 +1,14 @@
+import pickle
 import unittest
+
 import numpy as np
 import pandas as pd
-from layeredcompmodel import calculate_wilson_mean, LayeredCompModel
 from sklearn.datasets import make_regression
+from sklearn.model_selection import GridSearchCV, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import GridSearchCV, cross_val_score
-import pickle
+
+from layeredcompmodel import LayeredCompModel, calculate_wilson_mean
 
 
 class TestLayeredCompModel(unittest.TestCase):

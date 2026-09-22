@@ -11,9 +11,9 @@ import os
 
 import numpy as np
 import pytest
+from _perf_fixture import make_fixture
 
 from layeredcompmodel import LayeredCompBaggingModel
-from _perf_fixture import make_fixture
 
 BASELINE = os.path.join(os.path.dirname(__file__), "fixtures", "baseline_v021.json")
 METRICS = ("mae", "mse")

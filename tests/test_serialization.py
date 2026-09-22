@@ -9,10 +9,10 @@ import json
 
 import numpy as np
 import pytest
+from _perf_fixture import make_fixture
 
 import layeredcompmodel
 from layeredcompmodel import LayeredCompBaggingModel, LayeredCompModel
-from _perf_fixture import make_fixture
 
 METRICS = ("mae", "mse")
 

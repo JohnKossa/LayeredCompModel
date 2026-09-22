@@ -23,6 +23,14 @@
   exact equality, but those values come from SciPy's bounded `minimize_scalar` and drift in their last
   digits (~1e-9) across SciPy/platform builds, failing CI. Tree structure is still asserted exactly
   (discrete, portable); falloffs and predictions now use `assert_allclose(rtol=1e-6)`. Behavior-neutral.
+- **Reproducible lint (CI lint failures).** The repo had no ruff configuration, so the enforced rule
+  set was environment-dependent — CI applied import-sort/pyupgrade/RUF rules that local runs did not,
+  turning green locally but red in CI. Added a pinned `[tool.ruff.lint]` config
+  (`select = ["E4", "E7", "E9", "F", "I", "UP", "RUF"]`, `target-version = "py310"`) and pinned
+  `ruff==0.15.11` in the dev extra so local and CI enforce identical rules. Fixed the resulting
+  violations: modernized type hints (`List`/`Dict`/`Tuple`/`Optional`/`Union` → `list`/`dict`/`tuple`/
+  `X | Y`/`X | None`), sorted import blocks and `__all__`, and dropped the now-unused `typing` imports.
+  Annotation-only; no runtime behavior change.
 
 ## [0.3.0] - 2026-09-22
 ### Added

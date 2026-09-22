@@ -1,8 +1,10 @@
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.datasets import make_regression
+
 from layeredcompmodel import LayeredCompBaggingModel
+
 
 def test_bagging_model_basic():
     X, y = make_regression(n_samples=50, n_features=4, random_state=42)

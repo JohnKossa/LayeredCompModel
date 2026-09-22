@@ -1,15 +1,14 @@
+import json
+from collections import deque
+from collections.abc import Callable, Sequence
+from typing import Any, cast
+
 import numpy as np
 import pandas as pd
-import json
-from sklearn.base import BaseEstimator, RegressorMixin
-
-from sklearn.utils.validation import check_is_fitted
 from joblib import Parallel, delayed
-from collections import deque
-
-from typing import Any, Callable, cast, Dict, List, Optional, Sequence, Tuple, Union
-
 from pandas import DataFrame, Series
+from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils.validation import check_is_fitted
 
 
 def calculate_wilson_mean(y: Sequence[float]) -> float:
@@ -46,7 +45,7 @@ def calculate_wilson_mean(y: Sequence[float]) -> float:
 
 
 class CompNode:
-    def __init__(self, depth: int, wilson_mean: float, count: int, filter_col: Optional[str] = None, filter_val: Optional[Union[str, float]] = None, is_numeric: bool = False, variant: Optional[str] = None) -> None:
+    def __init__(self, depth: int, wilson_mean: float, count: int, filter_col: str | None = None, filter_val: str | float | None = None, is_numeric: bool = False, variant: str | None = None) -> None:
         self.depth = depth
         self.wilson_mean = wilson_mean
         self.count = count
@@ -54,10 +53,10 @@ class CompNode:
         self.filter_val = filter_val
         self.is_numeric = is_numeric
         self.variant = variant
-        self.children: List[CompNode] = []
+        self.children: list[CompNode] = []
 
 
-def _node_from_dict(d: Dict[str, Any]) -> CompNode:
+def _node_from_dict(d: dict[str, Any]) -> CompNode:
     """Rebuild a CompNode (and its subtree) from the dict produced by ``LayeredCompModel.to_dict``."""
     node = CompNode(
         depth=int(d["depth"]),
@@ -130,7 +129,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         self._split_metric_name: str = split_metric
         self.n_jobs: int = n_jobs
 
-    def get_params(self, deep: bool = True) -> Dict[str, Any]:
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
         return {
             "weight_falloff": self.weight_falloff,
             "split_metric": self._split_metric_name,
@@ -165,11 +164,11 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         mse = np.mean((y_subset - mean) ** 2)
         return mse
 
-    def _find_best_split(self, X_full: DataFrame, y_full: Series, indices: np.ndarray, columns: List[str], pre_sorted_indices: Optional[Dict[str, np.ndarray]] = None) -> Optional[Tuple[str, Union[str, float], bool]]:
+    def _find_best_split(self, X_full: DataFrame, y_full: Series, indices: np.ndarray, columns: list[str], pre_sorted_indices: dict[str, np.ndarray] | None = None) -> tuple[str, str | float, bool] | None:
         # We want to MINIMIZE the weighted MAE / base MAE ratio
         # Initializing best_score with 1.0 (no improvement)
         best_score: float = 1.0
-        best_split: Optional[Tuple[str, Union[str, float], bool]] = None
+        best_split: tuple[str, str | float, bool] | None = None
 
         y = y_full.iloc[indices]
         # X = X_full.iloc[indices] # Removed since we use indices for filtering
@@ -269,7 +268,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
 
                     if best_col_score < best_score:
                         best_score = best_col_score
-                        best_split = (col, cast(Union[str, float], best_col_midpoint), True)
+                        best_split = (col, cast(str | float, best_col_midpoint), True)
                 else:
                     # Fallback to old numeric split logic (if no pre_sorted_indices)
                     X_col_full = X_full[col].iloc[indices]
@@ -325,7 +324,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
 
                     if best_col_score < best_score:
                         best_score = best_col_score
-                        best_split = (col, cast(Union[str, float], best_col_midpoint), True)
+                        best_split = (col, cast(str | float, best_col_midpoint), True)
             else:
                 # Categorical split logic (one-vs-rest)
                 # Treat NaNs as a distinct category
@@ -350,13 +349,13 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
                     score = weighted_metric / base_metric
                     if score < best_score:
                         best_score = score
-                        best_split = (col, cast(Union[str, float], var), False)
+                        best_split = (col, cast(str | float, var), False)
                     elif score == best_score:
                         # Tie break
                         current_best_v_count = (X_col_filled_values == best_split[1]).sum() if best_split and not \
                         best_split[2] else 0
                         if abs(len(y_v) - total_count / 2) < abs(current_best_v_count - total_count / 2):
-                            best_split = (col, cast(Union[str, float], var), False)
+                            best_split = (col, cast(str | float, var), False)
 
         return best_split
 
@@ -411,7 +410,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         if pd.api.types.is_numeric_dtype(y) and np.isinf(y.values).any():
             raise ValueError("Input y contains infinity.")
 
-        self.columns_: List[str] = X.columns.tolist()
+        self.columns_: list[str] = X.columns.tolist()
         self.n_features_in_: int = X.shape[1]
         
         if self._split_metric_name not in ('mae', 'mse'):
@@ -419,7 +418,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         self._split_metric: Callable[[np.ndarray], float] = self._get_mae if self._split_metric_name == 'mae' else self._get_mse
 
         # Pre-calculate sorted index maps for numeric columns
-        self.pre_sorted_indices_: Dict[str, np.ndarray] = {}
+        self.pre_sorted_indices_: dict[str, np.ndarray] = {}
         for col in self.columns_:
             if pd.api.types.is_numeric_dtype(X[col]):
                 # Drop NaNs and sort
@@ -434,7 +433,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         self.tree_ = self._build_tree(X, y, indices, depth=0, verbose=verbose)
         return self
 
-    def _build_tree(self, X_full: DataFrame, y_full: Series, indices: np.ndarray, depth: int, variant: Optional[str] = None, verbose: bool = False) -> CompNode:
+    def _build_tree(self, X_full: DataFrame, y_full: Series, indices: np.ndarray, depth: int, variant: str | None = None, verbose: bool = False) -> CompNode:
         y_initial = y_full.iloc[indices]
         root_node_mean = calculate_wilson_mean(y_initial)
         root_node = CompNode(depth=depth, wilson_mean=root_node_mean, count=len(y_initial), variant=variant)
@@ -586,7 +585,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         # number of nodes on the row's root->terminal path (= terminal depth + 1).
         means = np.full((n, max_depth + 1), np.nan, dtype="float64")
         term_len = np.zeros(n, dtype=np.int64)
-        col_cache: Dict[str, np.ndarray] = {}
+        col_cache: dict[str, np.ndarray] = {}
 
         def colvals(col):
             if col not in col_cache:
@@ -713,7 +712,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
 
         return weighted_sum / total_w
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Serialize fitted tree to nested dict (JSON-compatible).
 
@@ -731,7 +730,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         check_is_fitted(self)
         assert self.tree_ is not None
 
-        def _node_to_dict(node: Optional[CompNode]) -> Optional[Dict[str, Any]]:
+        def _node_to_dict(node: CompNode | None) -> dict[str, Any] | None:
             if not node:
                 return None
 
@@ -756,7 +755,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
 
             return d
 
-        return cast(Dict[str, Any], _node_to_dict(self.tree_))
+        return cast(dict[str, Any], _node_to_dict(self.tree_))
 
     def to_json(self, indent: int = 4) -> str:
         """
@@ -775,7 +774,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         return json.dumps(self.to_dict(), indent=indent)
 
     @classmethod
-    def from_dict(cls, state: Dict[str, Any]) -> "LayeredCompModel":
+    def from_dict(cls, state: dict[str, Any]) -> "LayeredCompModel":
         """Reconstruct a PREDICT-READY tree from a serialized state dict.
 
         Inverse of the per-tree state produced by :meth:`LayeredCompBaggingModel.to_dict`, which
@@ -797,7 +796,7 @@ class LayeredCompModel(RegressorMixin, BaseEstimator):
         model.tree_ = _node_from_dict(state["tree"])
         return model
 
-    def explain_value(self, row: Union[DataFrame, pd.Series, Dict[str, Any]]) -> Dict[str, Any]:
+    def explain_value(self, row: DataFrame | pd.Series | dict[str, Any]) -> dict[str, Any]:
         """
         Trace prediction path for a single row, return nodes/weights/calculation.
 
