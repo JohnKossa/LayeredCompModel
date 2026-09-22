@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-09-22
 ### Added
 - **JSON serialization for fitted models.** `LayeredCompBaggingModel.to_dict`/`from_dict` and
   `to_json`/`from_json`, plus `LayeredCompModel.from_dict` (inverse of the existing `to_dict`). A
